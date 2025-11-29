@@ -8,15 +8,17 @@ from typing import Set
 from Params_connect_socket import connect_ws
 
 # ======================================================
-# APP SETUP
+# APP INIT
 # ======================================================
 app = FastAPI()
 
-# ✅ Allow both local + any public frontend (Vercel etc.)
+# ✅ CORRECT CORS CONFIG (BROWSER SAFE)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://tb-wss.onrender.com"],  # ✅ REQUIRED for public hosting
-    allow_credentials=False,
+    allow_origins=[
+        "https://tradebridgewss.vercel.app",  # ✅ Frontend
+    ],
+    allow_credentials=False,  # ✅ MUST be False with explicit origin
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -39,25 +41,23 @@ class SocketRequest(BaseModel):
 
 
 # ======================================================
-# LOG BROADCASTER (THREAD-SAFE)
+# THREAD-SAFE LOG BROADCAST
 # ======================================================
 def broadcast_log(message: str):
-    """
-    Called from background thread.
-    Safely sends text logs to all connected UI clients.
-    """
-    loop = asyncio.get_event_loop()
-
-    for ws in list(ui_clients):
-        if ws.client_state.name == "CONNECTED":
-            loop.call_soon_threadsafe(
-                asyncio.create_task,
-                ws.send_text(message),
-            )
+    try:
+        loop = asyncio.get_event_loop()
+        for ws in list(ui_clients):
+            if ws.client_state.name == "CONNECTED":
+                loop.call_soon_threadsafe(
+                    asyncio.create_task,
+                    ws.send_text(message)
+                )
+    except RuntimeError:
+        pass
 
 
 # ======================================================
-# MARKET SOCKET RUNNER (BACKGROUND THREAD)
+# SOCKET RUNNER
 # ======================================================
 def run_socket(baseUrl: str, token: str, apiKey: str):
     status["connected"] = True
@@ -70,18 +70,20 @@ def run_socket(baseUrl: str, token: str, apiKey: str):
 
 
 # ======================================================
-# API ENDPOINTS
+# API ROUTES
 # ======================================================
+@app.options("/{path:path}")
+def preflight_handler():
+    # ✅ Explicit OPTIONS support (fixes CORS preflight)
+    return {}
+
+
 @app.post("/start-socket")
 def start_socket(req: SocketRequest):
     global socket_thread
 
-    # ✅ Prevent duplicate socket start
     if socket_thread and socket_thread.is_alive():
-        return {
-            "success": True,
-            "message": "Socket already running",
-        }
+        return {"success": True, "message": "Socket already running"}
 
     socket_thread = threading.Thread(
         target=run_socket,
@@ -90,10 +92,7 @@ def start_socket(req: SocketRequest):
     )
     socket_thread.start()
 
-    return {
-        "success": True,
-        "message": "Socket started",
-    }
+    return {"success": True, "message": "Socket started"}
 
 
 @app.get("/status")
@@ -102,15 +101,13 @@ def get_status():
 
 
 # ======================================================
-# WEBSOCKET ENDPOINT (LOG STREAM)
+# LOG STREAM (WSS)
 # ======================================================
 @app.websocket("/logs")
 async def logs(ws: WebSocket):
     await ws.accept()
     ui_clients.add(ws)
-
     try:
-        # ✅ Keep socket alive, no data expected from client
         while True:
             await ws.receive_text()
     except:
