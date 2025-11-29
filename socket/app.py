@@ -15,7 +15,7 @@ app = FastAPI()
 # ✅ Allow both local + any public frontend (Vercel etc.)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ✅ REQUIRED for public hosting
+    allow_origins=["https://tb-wss.onrender.com"],  # ✅ REQUIRED for public hosting
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
