@@ -1,10 +1,26 @@
+export type FieldSpec = {
+  key: string;
+  type: "string" | "int32" | "int64";
+  len: number;
+};
+
+export type PacketSpec = {
+  [fieldId: number]: FieldSpec;
+};
+
+export type PktSpecMap = {
+  [pktType: number]: PacketSpec;
+};
+
 export const QUOTE = 1;
 
 export const PKT_TYPE: Record<number, number> = {
   1: QUOTE,
 };
 
-export const DEFAULT_PKT_INFO = {
+export const DEFAULT_PKT_INFO: {
+  PKT_SPEC: PktSpecMap;
+} = {
   PKT_SPEC: {
     1: {
       1: { key: "symbol", type: "string", len: 20 },
