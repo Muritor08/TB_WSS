@@ -1,66 +1,66 @@
-"use client";
+"use client"
 
-import { useEffect, useRef, useState } from "react";
-import { decodeBinaryMessage } from "@/lib/decodeBinary";
+import { useEffect, useRef, useState } from "react"
+import { decodeBinaryMessage } from "@/lib/decodeBinary"
+import OtpForm from "@/components/otp-form"
 
 export default function OtpPage() {
-  const [otp, setOtp] = useState("");
-  const [logs, setLogs] = useState<string[]>([]);
-  const wsRef = useRef<WebSocket | null>(null);
-  const waitTimer = useRef<NodeJS.Timeout | null>(null);
+  const [otp, setOtp] = useState("")
+  const [logs, setLogs] = useState<string[]>([])
+  const wsRef = useRef<WebSocket | null>(null)
+  const waitTimer = useRef<NodeJS.Timeout | null>(null)
 
   const addLog = (msg: string) => {
-    setLogs((p) => [...p.slice(-300), msg]);
-  };
+    setLogs((p) => [...p.slice(-300), msg])
+  }
 
   // ✅ Restart wait timer (Python asyncio.wait_for equivalent)
   const resetWaitTimer = () => {
-    if (waitTimer.current) clearTimeout(waitTimer.current);
+    if (waitTimer.current) clearTimeout(waitTimer.current)
 
     waitTimer.current = setTimeout(() => {
-      addLog("⏳ No data received in 10 seconds, continuing to wait...");
-      addLog("📥 Waiting for data...");
-      resetWaitTimer();
-    }, 10000);
-  };
+      addLog("⏳ No data received in 10 seconds, continuing to wait...")
+      addLog("📥 Waiting for data...")
+      resetWaitTimer()
+    }, 10000)
+  }
 
   // ✅ OTP verification → start socket
-  const verifyOtp = async () => {
-    const authRaw = sessionStorage.getItem("authData");
-    if (!authRaw || !otp) return;
+  const verifyOtp = async (otpValue: string) => {
+    setOtp(otpValue)
+    const authRaw = sessionStorage.getItem("authData")
+    if (!authRaw || !otpValue) return
 
-    const { baseUrl, apiKey, userId, txnId } = JSON.parse(authRaw);
+    const { baseUrl, apiKey, userId, txnId } = JSON.parse(authRaw)
 
     const res = await fetch("/api/verify-otp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ baseUrl, apiKey, userId, txnId, otp }),
-    });
+      body: JSON.stringify({ baseUrl, apiKey, userId, txnId, otp: otpValue }),
+    })
 
-    const data = await res.json();
+    const data = await res.json()
 
     if (!data.success || !data.accessToken) {
-      addLog("❌ OTP verification failed");
-      return;
+      addLog("❌ OTP verification failed")
+      return
     }
 
-    addLog("✅ OTP Verified");
-    startBrowserSocket(baseUrl, data.accessToken, apiKey);
-  };
+    addLog("✅ OTP Verified")
+    startBrowserSocket(baseUrl, data.accessToken, apiKey)
+  }
 
   // ✅ PURE BROWSER SOCKET (CLIENT IP)
   const startBrowserSocket = (baseUrl: string, token: string, apiKey: string) => {
-    if (wsRef.current) wsRef.current.close();
+    if (wsRef.current) wsRef.current.close()
 
-    const ws = new WebSocket(
-      `wss://${baseUrl}.arihantplus.com/market-stream?token=${token}&apikey=${apiKey}`
-    );
+    const ws = new WebSocket(`wss://${baseUrl}.arihantplus.com/market-stream?token=${token}&apikey=${apiKey}`)
 
-    ws.binaryType = "arraybuffer";
-    wsRef.current = ws;
+    ws.binaryType = "arraybuffer"
+    wsRef.current = ws
 
     ws.onopen = () => {
-      addLog("✅ Connected to TradeBridge WebSocket");
+      addLog("✅ Connected to TradeBridge WebSocket")
 
       const subMsg = {
         request: {
@@ -68,54 +68,56 @@ export default function OtpPage() {
           request_type: "subscribe",
           data: { symbols: [{ symbol: "2885_NSE" }] },
         },
-      };
+      }
 
-      ws.send(JSON.stringify(subMsg) + "\n");
-      addLog("📨 Subscription message sent.");
-      addLog("📥 Waiting for data...");
-      resetWaitTimer();
-    };
+      ws.send(JSON.stringify(subMsg) + "\n")
+      addLog("📨 Subscription message sent.")
+      addLog("📥 Waiting for data...")
+      resetWaitTimer()
+    }
 
     ws.onmessage = (event) => {
-      resetWaitTimer();
+      resetWaitTimer()
 
       if (event.data instanceof ArrayBuffer) {
-        decodeBinaryMessage(event.data, addLog);
-        addLog("📥 Waiting for data...");
+        decodeBinaryMessage(event.data, addLog)
+        addLog("📥 Waiting for data...")
       } else {
-        addLog("⚠️ Server response (non-binary): " + String(event.data));
+        addLog("⚠️ Server response (non-binary): " + String(event.data))
       }
-    };
+    }
 
     ws.onerror = () => {
-      addLog("❌ WebSocket error");
-    };
+      addLog("❌ WebSocket error")
+    }
 
     ws.onclose = () => {
-      addLog("🛑 WebSocket receive cancelled.");
-      if (waitTimer.current) clearTimeout(waitTimer.current);
-    };
-  };
+      addLog("🛑 WebSocket receive cancelled.")
+      if (waitTimer.current) clearTimeout(waitTimer.current)
+    }
+  }
 
   // ✅ Cleanup on page unload
   useEffect(() => {
     return () => {
-      wsRef.current?.close();
-      if (waitTimer.current) clearTimeout(waitTimer.current);
-    };
-  }, []);
+      wsRef.current?.close()
+      if (waitTimer.current) clearTimeout(waitTimer.current)
+    }
+  }, [])
 
   return (
-    <div style={{ padding: 30 }}>
-      <h2>OTP Verification</h2>
+    <div className="min-h-screen bg-gradient-to-br from-background to-secondary flex items-center justify-center p-4">
+      <div className="w-full max-w-2xl">
+        <div className="rounded-2xl bg-background border border-secondary-darker shadow-2xl p-8">
+          <div className="flex items-center justify-center mb-6">
+            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-primary to-primary-dark flex items-center justify-center">
+              <span className="text-white font-bold text-lg">TB</span>
+            </div>
+          </div>
 
-      <input
-        value={otp}
-        onChange={(e) => setOtp(e.target.value)}
-        placeholder="Enter OTP"
-      />
-      <button onClick={verifyOtp}>Verify OTP</button>
-
+          <OtpForm/>
+        </div>
+      </div>
       <pre
         style={{
           marginTop: 20,
@@ -130,5 +132,5 @@ export default function OtpPage() {
         {logs.length ? logs.join("\n") : "No logs yet..."}
       </pre>
     </div>
-  );
+  )
 }
