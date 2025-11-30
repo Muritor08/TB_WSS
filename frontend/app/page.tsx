@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 export default function LoginPage() {
   const router = useRouter();
 
-  const [baseUrl, setBaseUrl] = useState("https://tradebridge.arihantplus.com");
+  const [baseUrl, setBaseUrl] = useState("tradebridge");
   const [apiKey, setApiKey] = useState("");
   const [userId, setUserId] = useState("");
   const [password, setPassword] = useState("");

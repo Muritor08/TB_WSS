@@ -5,7 +5,7 @@ export async function POST(req: Request) {
 
   try {
     const resp = await fetch(
-      `${baseUrl}/auth-services/api/auth/v1/verify-otp`,
+      `https://${baseUrl}.arihantplus.com/auth-services/api/auth/v1/verify-otp`,
       {
         method: "POST",
         headers: {

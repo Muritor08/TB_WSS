@@ -17,15 +17,22 @@ export function decodeBinaryMessage(
   buffer: ArrayBuffer,
   emit: (msg: string) => void
 ) {
-  const raw = new Uint8Array(buffer);
+  let payload = new Uint8Array(buffer);
 
-  const algo = raw[4];
-  const payload =
-    algo === 10 ? pako.inflate(raw.slice(5)) : raw.slice(5);
+  // ✅ TradeBridge browser WSS sometimes sends compressed frames directly
+  if (payload[0] === 0x78) {
+    try {
+      payload = pako.inflate(payload);
+    } catch {
+      // not compressed, ignore
+    }
+  }
 
   const view = new DataView(payload.buffer);
+
+  // ✅ Correct packet structure
   const pktLen = view.getInt16(0, true);
-  const pktType = view.getInt8(2);
+  const pktType = view.getUint8(2); // ✅ FIXED OFFSET
 
   if (!(pktType in PKT_TYPE)) {
     emit(`⚠️ Unknown packet type: ${pktType}`);

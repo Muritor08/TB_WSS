@@ -1,164 +1,134 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { decodeBinaryMessage } from "@/lib/decodeBinary";
-
-type ToastType = "success" | "error" | "info";
 
 export default function OtpPage() {
   const [otp, setOtp] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
-  const [toast, setToast] = useState<{ type: ToastType; msg: string } | null>(
-    null
-  );
-  const [ws, setWs] = useState<WebSocket | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const waitTimer = useRef<NodeJS.Timeout | null>(null);
 
-  const addLog = (msg: string) =>
-    setLogs((p) => [...p.slice(-200), msg]);
+  const addLog = (msg: string) => {
+    setLogs((p) => [...p.slice(-300), msg]);
+  };
 
-  // ✅ Auto-hide toaster
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2500);
-    return () => clearTimeout(t);
-  }, [toast]);
+  // ✅ Restart wait timer (Python asyncio.wait_for equivalent)
+  const resetWaitTimer = () => {
+    if (waitTimer.current) clearTimeout(waitTimer.current);
 
-  // ✅ Verify OTP → Start browser socket (NO backend call)
+    waitTimer.current = setTimeout(() => {
+      addLog("⏳ No data received in 10 seconds, continuing to wait...");
+      addLog("📥 Waiting for data...");
+      resetWaitTimer();
+    }, 10000);
+  };
+
+  // ✅ OTP verification → start socket
   const verifyOtp = async () => {
-    if (!otp) return;
-
     const authRaw = sessionStorage.getItem("authData");
-    if (!authRaw) return;
+    if (!authRaw || !otp) return;
 
     const { baseUrl, apiKey, userId, txnId } = JSON.parse(authRaw);
 
     const res = await fetch("/api/verify-otp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        baseUrl,
-        apiKey,
-        userId,
-        txnId,
-        otp,
-      }),
+      body: JSON.stringify({ baseUrl, apiKey, userId, txnId, otp }),
     });
 
     const data = await res.json();
 
     if (!data.success || !data.accessToken) {
-      setToast({ type: "error", msg: "OTP verification failed" });
+      addLog("❌ OTP verification failed");
       return;
     }
 
-    setToast({ type: "success", msg: "OTP Verified" });
-    sessionStorage.setItem("accessToken", data.accessToken);
-
-    startBrowserSocket(data.accessToken, apiKey);
+    addLog("✅ OTP Verified");
+    startBrowserSocket(baseUrl, data.accessToken, apiKey);
   };
 
-  // ✅ PURE BROWSER WEBSOCKET (CLIENT IP)
-  const startBrowserSocket = (token: string, apiKey: string) => {
-    if (ws) ws.close();
+  // ✅ PURE BROWSER SOCKET (CLIENT IP)
+  const startBrowserSocket = (baseUrl: string, token: string, apiKey: string) => {
+    if (wsRef.current) wsRef.current.close();
 
-    const socket = new WebSocket(
-      `wss://tradebridge.arihantplus.com/market-stream?token=${token}&apikey=${apiKey}`
+    const ws = new WebSocket(
+      `wss://${baseUrl}.arihantplus.com/market-stream?token=${token}&apikey=${apiKey}`
     );
 
-    socket.binaryType = "arraybuffer";
+    ws.binaryType = "arraybuffer";
+    wsRef.current = ws;
 
-    socket.onopen = () => {
+    ws.onopen = () => {
       addLog("✅ Connected to TradeBridge WebSocket");
 
-      socket.send(
-        JSON.stringify({
-          request: {
-            streaming_type: "quote",
-            request_type: "subscribe",
-            data: { symbols: [{ symbol: "2885_NSE" }] },
-          },
-        }) + "\n"
-      );
+      const subMsg = {
+        request: {
+          streaming_type: "quote",
+          request_type: "subscribe",
+          data: { symbols: [{ symbol: "2885_NSE" }] },
+        },
+      };
 
+      ws.send(JSON.stringify(subMsg) + "\n");
       addLog("📨 Subscription message sent.");
       addLog("📥 Waiting for data...");
+      resetWaitTimer();
     };
 
-    socket.onmessage = (event) => {
+    ws.onmessage = (event) => {
+      resetWaitTimer();
+
       if (event.data instanceof ArrayBuffer) {
         decodeBinaryMessage(event.data, addLog);
         addLog("📥 Waiting for data...");
       } else {
-        addLog(String(event.data));
+        addLog("⚠️ Server response (non-binary): " + String(event.data));
       }
     };
 
-    socket.onerror = () => addLog("❌ WebSocket error");
-    socket.onclose = () => addLog("🛑 WebSocket closed");
+    ws.onerror = () => {
+      addLog("❌ WebSocket error");
+    };
 
-    setWs(socket);
+    ws.onclose = () => {
+      addLog("🛑 WebSocket receive cancelled.");
+      if (waitTimer.current) clearTimeout(waitTimer.current);
+    };
   };
 
-  // ✅ Cleanup
+  // ✅ Cleanup on page unload
   useEffect(() => {
     return () => {
-      ws?.close();
+      wsRef.current?.close();
+      if (waitTimer.current) clearTimeout(waitTimer.current);
     };
-  }, [ws]);
+  }, []);
 
   return (
-    <div style={{ padding: 35, fontFamily: "sans-serif" }}>
+    <div style={{ padding: 30 }}>
       <h2>OTP Verification</h2>
-
-      {toast && (
-        <div
-          style={{
-            marginBottom: 14,
-            padding: "8px 14px",
-            borderRadius: 4,
-            color: "#fff",
-            background:
-              toast.type === "success"
-                ? "#2e7d32"
-                : toast.type === "error"
-                ? "#c62828"
-                : "#0277bd",
-          }}
-        >
-          {toast.msg}
-        </div>
-      )}
 
       <input
         value={otp}
         onChange={(e) => setOtp(e.target.value)}
         placeholder="Enter OTP"
-        style={{ padding: 6, marginRight: 10 }}
       />
-
       <button onClick={verifyOtp}>Verify OTP</button>
 
-      <hr style={{ margin: "20px 0" }} />
-
-      <h3>Live TradeBridge Logs</h3>
-
-      <div
+      <pre
         style={{
-          height: 350,
-          overflowY: "auto",
+          marginTop: 20,
+          height: 380,
+          overflow: "auto",
           background: "#000",
           color: "#0f0",
           padding: 10,
-          fontFamily: "monospace",
           fontSize: 13,
-          border: "1px solid #333",
         }}
       >
-        {logs.length === 0 && <div>No logs yet...</div>}
-        {logs.map((line, i) => (
-          <div key={i}>{line}</div>
-        ))}
-      </div>
+        {logs.length ? logs.join("\n") : "No logs yet..."}
+      </pre>
     </div>
   );
 }
