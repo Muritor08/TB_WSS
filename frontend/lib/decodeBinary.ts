@@ -1,72 +1,78 @@
-import pako from "pako";
-import {
-  DEFAULT_PKT_INFO,
-  PKT_TYPE,
-  QUOTE,
-  PacketSpec,
-} from "./binaryDefaultSpec";
+import { DEFAULT_PKT_INFO, FieldSpec } from "./binaryDefaultSpec";
 
-function ab2str(buf: Uint8Array, offset: number, len: number) {
-  return new TextDecoder()
-    .decode(buf.slice(offset, offset + len))
-    .replace(/\0/g, "")
-    .trim();
-}
+type AnyObject = Record<string, any>;
 
+/**
+ * Decode binary packet using spec-driven decoding
+ * pktType must be passed explicitly (e.g. 1 for QUOTE)
+ */
 export function decodeBinaryMessage(
   buffer: ArrayBuffer,
-  emit: (msg: string) => void
+  pktType: number,
+  log: (msg: string) => void
 ) {
-  let payload = new Uint8Array(buffer);
-
-  // ✅ TradeBridge browser WSS sometimes sends compressed frames directly
-  if (payload[0] === 0x78) {
-    try {
-      payload = pako.inflate(payload);
-    } catch {
-      // not compressed, ignore
-    }
-  }
-
-  const view = new DataView(payload.buffer);
-
-  // ✅ Correct packet structure
-  const pktLen = view.getInt16(0, true);
-  const pktType = view.getUint8(2); // ✅ FIXED OFFSET
-
-  if (!(pktType in PKT_TYPE)) {
-    emit(`⚠️ Unknown packet type: ${pktType}`);
-    return;
-  }
-
-  if (PKT_TYPE[pktType] !== QUOTE) return;
-
-  const pktSpec: PacketSpec | undefined =
-    DEFAULT_PKT_INFO.PKT_SPEC[pktType];
+  const view = new DataView(buffer);
+  const pktSpec = DEFAULT_PKT_INFO.PKT_SPEC[pktType];
 
   if (!pktSpec) {
-    emit(`⚠️ No packet spec for type ${pktType}`);
+    log(`❌ Unknown packet spec for pktType: ${pktType}`);
     return;
   }
 
-  let idx = 3;
-  const decoded: Record<string, any> = {};
+  let offset = 0;
+  const decoded: AnyObject = {};
 
-  while (idx < pktLen) {
-    const fieldId = payload[idx++];
-    const field = pktSpec[fieldId];
-    if (!field) break;
+  while (offset < buffer.byteLength) {
+    // ✅ Field ID (1 byte)
+    const fieldId = view.getUint8(offset);
+    offset += 1;
 
-    if (field.type === "string") {
-      decoded[field.key] = ab2str(payload, idx, field.len);
-    } else if (field.type === "int32") {
-      decoded[field.key] = view.getInt32(idx, true) / 100;
-    } else if (field.type === "int64") {
-      decoded[field.key] = Number(view.getBigInt64(idx, true));
+    const field: FieldSpec | undefined = pktSpec[fieldId];
+
+    // ✅ Same behavior as Python: stop on unknown field
+    if (!field) {
+      break;
     }
 
-    idx += field.len;
+    decoded[field.key] = readField(view, offset, field);
+    offset += field.len;
   }
 
-  emit(`📊 Decoded Data: ${JSON.stringify(decoded)}`);
+  // ✅ Emit logs (same pattern you are using everywhere)
+  for (const [key, value] of Object.entries(decoded)) {
+    log(`${key}: ${value}`);
+  }
+}
+
+function readField(
+  view: DataView,
+  offset: number,
+  field: FieldSpec
+) {
+  switch (field.type) {
+    case "string": {
+      const bytes = new Uint8Array(view.buffer, offset, field.len);
+      return new TextDecoder()
+        .decode(bytes)
+        .replace(/\0/g, "")
+        .trim();
+    }
+
+    case "int32":
+      // ✅ little-endian
+      return view.getInt32(offset, true);
+
+    case "int64":
+      // ✅ Safe int64 handling (Number)
+      return readInt64(view, offset);
+
+    default:
+      return null;
+  }
+}
+
+function readInt64(view: DataView, offset: number): number {
+  const low = view.getUint32(offset, true);
+  const high = view.getInt32(offset + 4, true);
+  return high * 2 ** 32 + low;
 }

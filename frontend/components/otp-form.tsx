@@ -5,6 +5,7 @@ import type React from "react"
 import { useState, useRef, useEffect } from "react"
 import { AlertCircle, Loader2, CheckCircle2 } from "lucide-react"
 import { decodeBinaryMessage } from "@/lib/decodeBinary"
+import { inflateBase64ToBuffer } from "@/lib/inflateBinary"
 
 export default function OtpForm() {
   const [otp, setOtp] = useState("")
@@ -92,7 +93,9 @@ export default function OtpForm() {
         request: {
           streaming_type: "quote",
           request_type: "subscribe",
-          data: { symbols: [{ symbol: "2885_NSE" }] },
+          data: {
+            symbols: [{ "symbol": "11536_NSE" }, { "symbol": "466029_MCX" }]
+          },
         },
       }
 
@@ -105,13 +108,45 @@ export default function OtpForm() {
     ws.onmessage = (event) => {
       resetWaitTimer()
 
-      if (event.data instanceof ArrayBuffer) {
-        decodeBinaryMessage(event.data, addLog)
-        addLog("📥 Waiting for data...")
-      } else {
-        addLog("⚠️ Server response: " + String(event.data))
+      try {
+        // ✅ Case 1: Raw binary frame
+        if (event.data instanceof ArrayBuffer) {
+          decodeBinaryMessage(event.data, 1, addLog) // ✅ pktType = 1 (QUOTE)
+          addLog("📥 Waiting for data...")
+        }
+
+        // ✅ Case 2: Base64 + compressed frame
+        else if (typeof event.data === "string") {
+          // Inflate base64 → ArrayBuffer
+          const buffer = inflateBase64ToBuffer(event.data)
+
+          // ✅ (Optional) debug – keep only if needed
+          /*
+          const bytes = new Uint8Array(buffer)
+          addLog(
+            "🔎 First 16 bytes: " +
+            Array.from(bytes.slice(0, 16))
+              .map(b => b.toString(16).padStart(2, "0"))
+              .join(" ")
+          )
+          */
+
+          decodeBinaryMessage(buffer, 1, addLog) // ✅ pktType = 1 (QUOTE)
+          addLog("📥 Waiting for data...")
+        }
+
+        // ✅ Fallback
+        else {
+          addLog("⚠️ Server response: " + String(event.data))
+        }
+      } catch (err) {
+        addLog("❌ Decode error: " + String(err))
       }
     }
+
+
+
+
 
     ws.onerror = () => {
       setConnected(false)
@@ -186,7 +221,7 @@ export default function OtpForm() {
 
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          <div className={`h-3 w-3 rounded-full ${connected ? "bg-green-500" : "bg-gray-600"}`} />
+          <div className={`h-3 w-3 rounded-full ${connected ? "bg-green-500" : "bg-red-600"}`} />
           <span className="text-sm font-medium text-foreground">
             {connected ? "Connected to market stream" : "Not connected"}
           </span>
