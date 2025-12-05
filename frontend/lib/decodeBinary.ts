@@ -112,7 +112,7 @@ function decodeL1PKT(
     const dictString = Object.entries(decoded)
       .map(([key, value]) => `'${key}': '${value}'`)
       .join(', ');
-    log(`Decoded Data: {${dictString}}`);
+    log(`📊 Decoded Data: {${dictString}}`);
   }
 }
 

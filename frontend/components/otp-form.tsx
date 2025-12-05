@@ -134,14 +134,14 @@ export default function OtpForm() {
 
     ws.onopen = () => {
       setConnected(true)
-      addLog("✅ Connected to TradeBridge WebSocket")
+      addLog(`✅ Connected to ${baseUrl} WebSocket`)
 
       const subMsg = {
         request: {
           streaming_type: "quote",
           request_type: "subscribe",
           data: {
-            symbols: [{ "symbol": "11536_NSE" }, { "symbol": "466029_MCX" }]
+            symbols: [{ "symbol": "2885_NSE" }, { "symbol": "466029_MCX" }]
           },
         },
       }
